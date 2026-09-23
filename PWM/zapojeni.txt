@@ -1,0 +1,6 @@
+              |-GND
+potenciometr -|-GPIO26
+              |- +3,3V
+
+bzučka -|- +3,3V
+        |-GPIO16

@@ -1,5 +1,2 @@
 Button-blink-inator
 Při stisku tlačítka se rozbliká LED
-
-pin GPIO15 -> tlačítko -> GND
-pin GPIO16 -> rezistor 180 Ω -> LED -> GND
