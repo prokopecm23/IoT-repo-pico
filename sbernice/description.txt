@@ -1,0 +1,2 @@
+Měření vzdálenosti pomocí HC-SR04 a zobrazení na LCD s I2C převodníkem.
+HC-SR04 se sběrnicovou komunikací jsem nenašel, proto to mám i s MAX7219.

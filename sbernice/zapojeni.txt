@@ -1,0 +1,15 @@
+LCD -|- SCL -> SCL0
+     |- SDA -> SDA0
+     |- VCC -> +3,3 V
+     |- GND -> GND
+
+HC-SR04 -|- VCC -> VBUS
+         |- Trig -> GP14
+         |- Echo -> GP15
+         |- GND -> GND
+
+MAX7219 -|- VCC -> +3,3 V
+         |- GND -> GND
+         |- DIN -> GP19
+         |- CS -> GP17
+         |- CLK -> GP18

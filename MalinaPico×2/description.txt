@@ -1,0 +1,1 @@
+Komunikace 2 malin mezi sebou přes sběrnici.

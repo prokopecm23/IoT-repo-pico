@@ -1,0 +1,3 @@
+receiver -|- GP4 -> GP5
+          |- GP5 -> GP4
+          |- GND propojit
