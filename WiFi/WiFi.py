@@ -1,8 +1,8 @@
-import network
+import network  # type: ignore[import-not-found]
 
 
 SSID = "Pico-Hotspot"
-PASSWORD = "PicoWifi123"
+PASSWORD = "Pico1234"
 
 
 def start_hotspot():
@@ -10,11 +10,11 @@ def start_hotspot():
 		network.WLAN.IF_AP if hasattr(network.WLAN, "IF_AP") else network.AP_IF
 	)
 	access_point = network.WLAN(ap_interface)
-	access_point.config(ssid=SSID, key=PASSWORD, security=3)
+	try:
+		access_point.config(ssid=SSID, key=PASSWORD, security=3, channel=6)
+	except (TypeError, ValueError):
+		access_point.config(essid=SSID, password=PASSWORD, authmode=3, channel=6)
 	access_point.active(True)
-
-	while not access_point.active():
-		pass
 
 	print("Hotspot je zapnuty.")
 	print("Sit:", SSID)
