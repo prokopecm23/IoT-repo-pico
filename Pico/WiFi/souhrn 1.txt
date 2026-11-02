@@ -1,0 +1,15 @@
+Pico A, bzučák:
+
++ → GP16 (pin 21)
+− → GND
+
+Pico B, HC-SR04:
+
+VCC → VBUS (pin 40, 5V)
+GND → GND
+TRIG → GP14 (pin 19)
+ECHO → dělič napětí → GP15 (pin 20)
+
+Dělič napětí na ECHO (180Ω):
+
+ECHO → 180Ω → bod X
