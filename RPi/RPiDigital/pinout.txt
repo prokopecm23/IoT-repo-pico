@@ -1,3 +1,4 @@
 LED -|- 180ohm -> +5V
      |- GND
 
+tlačítko na obrázku je redundantní
