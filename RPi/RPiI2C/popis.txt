@@ -1,0 +1,2 @@
+Popis:
+Raspberry Pi komunikuje po sběrnici I2C s LCD displejem 1602A, který je osazený převodníkem PCF8574 na adrese 0x27. Program přes knihovnu smbus každou sekundu zapíše na displej teplotu procesoru a aktuální čas, přičemž ovladač displeje (inicializace do 4bitového režimu a zápis znaků) je implementovaný přímo v kódu.

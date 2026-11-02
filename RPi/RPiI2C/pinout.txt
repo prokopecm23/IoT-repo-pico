@@ -1,0 +1,14 @@
+Zapojení:
+
+LCD backpack	Raspberry Pi
+GND	GND (fyzický pin 6)
+VCC	5V (fyzický pin 4)
+SDA	GPIO2 / SDA (fyzický pin 3)
+SCL	GPIO3 / SCL (fyzický pin 5)
+
+Software a nastavení:
+
+I2C zapnuté v Raspberry Pi Configuration → Interfaces → I2C
+Kontrola zařízení na sběrnici: i2cdetect -y 1 (zobrazí adresu 27)
+Python 3, knihovny smbus a gpiozero (CPUTemperature)
+Soubor: lcd_i2c.py
