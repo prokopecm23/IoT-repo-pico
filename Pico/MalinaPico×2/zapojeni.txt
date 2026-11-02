@@ -1,3 +1,13 @@
-receiver -|- GP4 -> GP5
-          |- GP5 -> GP4
-          |- GND propojit
+PicoBMain (HC-SR04) -|- GP4 -> GP5
+          	     |- GP5 -> GP4
+          	     |- GND propojit
+		     |- GP14 -> Trig
+		     |- GP15 -> 180ohm -> Echo
+		     |- GND
+		     |- VBUS -> VCC
+
+PicoAMain (buzzer)  -|- GP4 -> GP5
+          	     |- GP5 -> GP4
+          	     |- GND propojit
+		     |- GP16 -> +bzučky
+		     |- GND

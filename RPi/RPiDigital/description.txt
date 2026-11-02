@@ -1,0 +1,1 @@
+Pri kliknutí na tlačítko na webu na se rozsvítí LED
