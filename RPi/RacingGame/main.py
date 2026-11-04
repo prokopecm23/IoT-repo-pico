@@ -1,7 +1,11 @@
+import argparse
 import math
 import sys
+import threading
+import time
 
 import pygame
+import serial
 
 
 SCREEN_WIDTH = 1280
@@ -40,6 +44,70 @@ CONTROLS = (
 
 PLAYER_COLORS = ((66, 190, 255), (255, 105, 78))
 PICKUP_ANGLES = (math.pi / 2, math.pi, math.pi * 1.5)
+BUTTON_BOOST = 1 << 0
+BUTTON_DRIFT = 1 << 1
+BUTTON_ITEM = 1 << 2
+BUTTON_HORN = 1 << 3
+BUTTON_PAUSE = (1 << 4) | (1 << 6)
+BUTTON_RESET = 1 << 5
+
+
+class ControllerReader:
+    def __init__(self, port, player_number):
+        self.port = port
+        self.player_number = player_number
+        self.serial_port = serial.Serial(port, baudrate=115200, timeout=0.2)
+        self.lock = threading.Lock()
+        self.state = {"steer": 0, "throttle": 0, "buttons": 0, "updated": 0.0}
+        self.running = True
+        self.error = None
+        self.thread = threading.Thread(target=self._read_loop, daemon=True)
+        self.thread.start()
+
+    def _read_loop(self):
+        while self.running:
+            try:
+                line = self.serial_port.readline().decode("ascii", errors="ignore").strip()
+            except serial.SerialException as exc:
+                self.error = str(exc)
+                return
+
+            fields = line.split(",")
+            if len(fields) != 4:
+                continue
+            try:
+                player_number, steer, throttle, buttons = map(int, fields)
+            except ValueError:
+                continue
+            if (
+                player_number != self.player_number
+                or steer not in (-1, 0, 1)
+                or throttle not in (-1, 0, 1)
+                or buttons < 0
+            ):
+                continue
+
+            with self.lock:
+                self.state = {
+                    "steer": steer,
+                    "throttle": throttle,
+                    "buttons": buttons,
+                    "updated": time.monotonic(),
+                }
+
+    def get_state(self):
+        with self.lock:
+            state = self.state.copy()
+        if time.monotonic() - state["updated"] > 0.5:
+            state["steer"] = 0
+            state["throttle"] = 0
+            state["buttons"] = 0
+        return state
+
+    def close(self):
+        self.running = False
+        self.thread.join(timeout=1)
+        self.serial_port.close()
 
 
 def track_position(angle, lane=0.0):
@@ -80,14 +148,17 @@ class Player:
         self.horn_was_pressed = False
         self.horn_time = 0.0
 
-    def update(self, keys, dt, pickups):
+    def update(self, keys, dt, pickups, controller):
         controls = self.controls
-        accelerating = keys[controls["accelerate"]]
-        braking = keys[controls["brake"]]
-        drifting = keys[controls["drift"]]
-        boost_pressed = keys[controls["boost"]]
-        item_pressed = keys[controls["item"]]
-        horn_pressed = keys[controls["horn"]]
+        controller_buttons = controller["buttons"]
+        accelerating = (
+            keys[controls["accelerate"]] or controller["throttle"] > 0
+        )
+        braking = keys[controls["brake"]] or controller["throttle"] < 0
+        drifting = keys[controls["drift"]] or bool(controller_buttons & BUTTON_DRIFT)
+        boost_pressed = keys[controls["boost"]] or bool(controller_buttons & BUTTON_BOOST)
+        item_pressed = keys[controls["item"]] or bool(controller_buttons & BUTTON_ITEM)
+        horn_pressed = keys[controls["horn"]] or bool(controller_buttons & BUTTON_HORN)
 
         if boost_pressed and not self.boost_was_pressed and self.boost_cooldown <= 0:
             self.boost_time = 0.9
@@ -120,7 +191,10 @@ class Player:
             self.speed -= math.copysign(min(abs(self.speed), 180.0 * dt), self.speed)
         self.speed = max(-110.0, min(maximum_speed, self.speed))
 
-        steering = int(keys[controls["right"]]) - int(keys[controls["left"]])
+        steering = (
+            int(keys[controls["right"]] or controller["steer"] > 0)
+            - int(keys[controls["left"]] or controller["steer"] < 0)
+        )
         if abs(self.speed) > 4:
             turn_rate = 0.75 + min(abs(self.speed) / 250.0, 1.0)
             if drifting:
@@ -240,7 +314,15 @@ def draw_view(screen, viewport, player, players, pickups, font, small_font):
     view.blit(small_font.render("A boost   B drift   X item   Y horn", True, (245, 245, 245)), (14, view.get_height() - 28))
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Two-player Pico Kart")
+    parser.add_argument("--uart-port", default="/dev/serial0")
+    parser.add_argument("--usb-port", default="/dev/ttyACM0")
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     pygame.init()
     pygame.display.set_caption("Pico Kart - local split-screen")
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
@@ -253,54 +335,87 @@ def main():
     winner = None
     elapsed = 0.0
     running = True
+    controllers = []
+    previous_button_masks = [0, 0]
 
-    while running:
-        dt = min(clock.tick(FPS) / 1000.0, 0.05)
+    try:
+        controllers.append(ControllerReader(args.uart_port, 1))
+        controllers.append(ControllerReader(args.usb_port, 2))
+        while running:
+            dt = min(clock.tick(FPS) / 1000.0, 0.05)
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE or event.key == pygame.K_RETURN:
-                    paused = not paused
-                elif event.key in (pygame.K_r, pygame.K_BACKSPACE):
-                    for player in players:
-                        player.reset()
-                    pickups = reset_pickups()
-                    winner = None
-                    elapsed = 0.0
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE or event.key == pygame.K_RETURN:
+                        paused = not paused
+                    elif event.key in (pygame.K_r, pygame.K_BACKSPACE):
+                        for player in players:
+                            player.reset()
+                        pickups = reset_pickups()
+                        winner = None
+                        elapsed = 0.0
 
-        keys = pygame.key.get_pressed()
-        if not paused and winner is None:
-            elapsed += dt
-            for pickup in pickups:
-                if not pickup["available"]:
-                    pickup["respawn"] -= dt
-                    if pickup["respawn"] <= 0:
-                        pickup["available"] = True
-            for player in players:
-                player.update(keys, dt, pickups)
-                if player.laps >= LAPS_TO_WIN and winner is None:
-                    winner = player
+            keys = pygame.key.get_pressed()
+            controller_states = [controller.get_state() for controller in controllers]
+            pressed_edges = [
+                state["buttons"] & ~previous_button_masks[index]
+                for index, state in enumerate(controller_states)
+            ]
+            previous_button_masks = [state["buttons"] for state in controller_states]
+            if any(buttons & BUTTON_PAUSE for buttons in pressed_edges):
+                paused = not paused
+            if any(buttons & BUTTON_RESET for buttons in pressed_edges):
+                for player in players:
+                    player.reset()
+                pickups = reset_pickups()
+                winner = None
+                elapsed = 0.0
 
-        screen.fill((15, 15, 18))
-        half_width = screen.get_width() // 2
-        for index, player in enumerate(players):
-            viewport = pygame.Rect(index * half_width, 0, half_width, screen.get_height())
-            draw_view(screen, viewport, player, players, pickups, font, small_font)
-        pygame.draw.line(screen, (235, 235, 235), (half_width, 0), (half_width, screen.get_height()), 3)
+            for controller in controllers:
+                if controller.error:
+                    print(
+                        "Controller {} ({}) disconnected: {}".format(
+                            controller.player_number, controller.port, controller.error
+                        ),
+                        file=sys.stderr,
+                    )
+                    controller.error = None
 
-        if paused or winner is not None:
-            text = "PAUSED - Enter or Esc to continue" if paused else "PLAYER {} WINS!  R to race again".format(winner.number)
-            overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 155))
-            screen.blit(overlay, (0, 0))
-            message = pygame.font.Font(None, 48).render(text, True, (255, 255, 255))
-            screen.blit(message, message.get_rect(center=screen.get_rect().center))
+            if not paused and winner is None:
+                elapsed += dt
+                for pickup in pickups:
+                    if not pickup["available"]:
+                        pickup["respawn"] -= dt
+                        if pickup["respawn"] <= 0:
+                            pickup["available"] = True
+                for index, player in enumerate(players):
+                    player.update(keys, dt, pickups, controller_states[index])
+                    if player.laps >= LAPS_TO_WIN and winner is None:
+                        winner = player
 
-        pygame.display.flip()
+            screen.fill((15, 15, 18))
+            half_width = screen.get_width() // 2
+            for index, player in enumerate(players):
+                viewport = pygame.Rect(index * half_width, 0, half_width, screen.get_height())
+                draw_view(screen, viewport, player, players, pickups, font, small_font)
+            pygame.draw.line(screen, (235, 235, 235), (half_width, 0), (half_width, screen.get_height()), 3)
 
-    pygame.quit()
+            if paused or winner is not None:
+                text = "PAUSED - Enter or Esc to continue" if paused else "PLAYER {} WINS!  R to race again".format(winner.number)
+                overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, 155))
+                screen.blit(overlay, (0, 0))
+                message = pygame.font.Font(None, 48).render(text, True, (255, 255, 255))
+                screen.blit(message, message.get_rect(center=screen.get_rect().center))
+
+            pygame.display.flip()
+    finally:
+        for controller in controllers:
+            controller.close()
+        pygame.quit()
+
     return 0
 
 
